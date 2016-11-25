@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <errno.h>
 
 // Simplifed xv6 shell.
 
@@ -40,6 +41,12 @@ struct pipecmd {
 int fork1(void);  // Fork but exits on failure.
 struct cmd *parsecmd(char*);
 
+void panic(const char * str)
+{
+    perror(str);
+    exit(-1);
+}
+
 // Execute cmd.  Never returns.
 void
 runcmd(struct cmd *cmd)
@@ -61,22 +68,43 @@ runcmd(struct cmd *cmd)
     ecmd = (struct execcmd*)cmd;
     if(ecmd->argv[0] == 0)
       exit(0);
-    fprintf(stderr, "exec not implemented\n");
     // Your code here ...
+    execv(ecmd->argv[0], ecmd->argv);
+    fprintf(stderr, "execv %s failed. %s\n", ecmd->argv[0], strerror(errno));
     break;
 
   case '>':
   case '<':
     rcmd = (struct redircmd*)cmd;
-    fprintf(stderr, "redir not implemented\n");
     // Your code here ...
+    close(rcmd->fd);
+    if (open(rcmd->file, rcmd->mode, S_IRUSR|S_IWUSR) == -1)
+        panic(strcat("open ", rcmd->file));
     runcmd(rcmd->cmd);
     break;
 
   case '|':
     pcmd = (struct pipecmd*)cmd;
-    fprintf(stderr, "pipe not implemented\n");
     // Your code here ...
+    if (pipe(p) == -1)
+        panic("pipe");
+    if (fork1() == 0) {
+       close(STDIN_FILENO);
+       dup(p[0]);
+       close(p[0]);
+       close(p[1]);
+       runcmd(pcmd->right);
+    } else if (fork1() == 0) {
+       close(STDOUT_FILENO);
+       dup(p[1]);
+       close(p[0]);
+       close(p[1]);
+       runcmd(pcmd->left);
+    }
+    close(p[0]);
+    close(p[1]);
+    wait(&r);
+    wait(&r);
     break;
   }    
   exit(0);
@@ -125,7 +153,7 @@ fork1(void)
   
   pid = fork();
   if(pid == -1)
-    perror("fork");
+    panic("fork");
   return pid;
 }
 
