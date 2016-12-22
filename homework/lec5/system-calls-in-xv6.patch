@@ -1,0 +1,192 @@
+diff --git a/Makefile b/Makefile
+index 93d525a..b9e138a 100644
+--- a/Makefile
++++ b/Makefile
+@@ -52,7 +52,7 @@ TOOLPREFIX := $(shell if i386-jos-elf-objdump -i 2>&1 | grep '^elf32-i386$$' >/d
+ endif
+ 
+ # If the makefile can't find QEMU, specify its path here
+-# QEMU = qemu-system-i386
++QEMU = /usr/local/bin/qemu-system-i386
+ 
+ # Try to infer the correct QEMU
+ ifndef QEMU
+@@ -159,6 +159,7 @@ mkfs: mkfs.c fs.h
+ 
+ UPROGS=\
+ 	_cat\
++	_date\
+ 	_echo\
+ 	_forktest\
+ 	_grep\
+diff --git a/date.c b/date.c
+new file mode 100644
+index 0000000..be5ee49
+--- /dev/null
++++ b/date.c
+@@ -0,0 +1,19 @@
++#include "types.h"
++#include "user.h"
++#include "date.h"
++
++int
++main(int argc, char *argv[])
++{
++  struct rtcdate r;
++
++  if (date(&r)) {
++    printf(2, "date failed\n");
++    exit();
++  }
++
++  // your code to print the time in any format you like...
++  printf(1, "date: %d-%d-%d %d:%d:%d\n", r.year, r.month, r.day, r.hour, r.minute, r.second);
++
++  exit();
++}
+diff --git a/syscall.c b/syscall.c
+index 9ae7536..a2405fb 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -98,6 +98,7 @@ extern int sys_unlink(void);
+ extern int sys_wait(void);
+ extern int sys_write(void);
+ extern int sys_uptime(void);
++extern int sys_date(void);
+ 
+ static int (*syscalls[])(void) = {
+ [SYS_fork]    sys_fork,
+@@ -114,6 +115,7 @@ static int (*syscalls[])(void) = {
+ [SYS_sbrk]    sys_sbrk,
+ [SYS_sleep]   sys_sleep,
+ [SYS_uptime]  sys_uptime,
++[SYS_date]    sys_date,
+ [SYS_open]    sys_open,
+ [SYS_write]   sys_write,
+ [SYS_mknod]   sys_mknod,
+@@ -131,6 +133,77 @@ syscall(void)
+   num = proc->tf->eax;
+   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+     proc->tf->eax = syscalls[num]();
++    //switch (num) {
++    //  case SYS_fork:
++    //    cprintf("fork -> ");
++    //    break;
++    //  case SYS_exit:
++    //    cprintf("exit -> ");
++    //    break;
++    //  case SYS_wait:
++    //    cprintf("wait -> ");
++    //    break;
++    //  case SYS_pipe:
++    //    cprintf("pipe -> ");
++    //    break;
++    //  case SYS_read:
++    //    cprintf("read -> ");
++    //    break;
++    //  case SYS_kill:
++    //    cprintf("kill -> ");
++    //    break;
++    //  case SYS_exec:
++    //    cprintf("exec -> ");
++    //    break;
++    //  case SYS_fstat:
++    //    cprintf("fstat -> ");
++    //    break;
++    //  case SYS_chdir:
++    //    cprintf("chdir -> ");
++    //    break;
++    //  case SYS_dup:
++    //    cprintf("dup -> ");
++    //    break;
++    //  case SYS_getpid:
++    //    cprintf("getpid -> ");
++    //    break;
++    //  case SYS_sbrk:
++    //    cprintf("sbrk -> ");
++    //    break;
++    //  case SYS_sleep:
++    //    cprintf("sleep -> ");
++    //    break;
++    //  case SYS_uptime:
++    //    cprintf("uptime -> ");
++    //    break;
++    //  case SYS_date:
++    //    cprintf("date -> ");
++    //    break;
++    //  case SYS_open:
++    //    cprintf("open -> ");
++    //    break;
++    //  case SYS_write:
++    //    cprintf("write -> ");
++    //    break;
++    //  case SYS_mknod:
++    //    cprintf("mknod -> ");
++    //    break;
++    //  case SYS_unlink:
++    //    cprintf("unlink -> ");
++    //    break;
++    //  case SYS_link:
++    //    cprintf("link -> ");
++    //    break;
++    //  case SYS_mkdir:
++    //    cprintf("mkdir -> ");
++    //    break;
++    //  case SYS_close:
++    //    cprintf("close -> ");
++    //    break;
++    //  default:
++    //    panic("should never get here\n");
++    //}
++    //cprintf("%d\n", proc->tf->eax);
+   } else {
+     cprintf("%d %s: unknown sys call %d\n",
+             proc->pid, proc->name, num);
+diff --git a/syscall.h b/syscall.h
+index bc5f356..1a620b9 100644
+--- a/syscall.h
++++ b/syscall.h
+@@ -20,3 +20,4 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_date   22
+diff --git a/sysproc.c b/sysproc.c
+index 6b585e0..28644ed 100644
+--- a/sysproc.c
++++ b/sysproc.c
+@@ -89,3 +89,13 @@ sys_uptime(void)
+   release(&tickslock);
+   return xticks;
+ }
++
++int
++sys_date(void)
++{
++  struct rtcdate * r;
++  if(argptr(0, (char **)&r, sizeof(*r)) < 0)
++    return -1;
++  cmostime(r);
++  return 0;
++}
+diff --git a/user.h b/user.h
+index f45b8d5..1f62601 100644
+--- a/user.h
++++ b/user.h
+@@ -23,6 +23,7 @@ int getpid(void);
+ char* sbrk(int);
+ int sleep(int);
+ int uptime(void);
++int date(struct rtcdate *);
+ 
+ // ulib.c
+ int stat(char*, struct stat*);
+diff --git a/usys.S b/usys.S
+index 8bfd8a1..ba76d54 100644
+--- a/usys.S
++++ b/usys.S
+@@ -29,3 +29,4 @@ SYSCALL(getpid)
+ SYSCALL(sbrk)
+ SYSCALL(sleep)
+ SYSCALL(uptime)
++SYSCALL(date)
